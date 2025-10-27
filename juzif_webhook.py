@@ -10,11 +10,11 @@ CHANNEL_ID = "-1003203955147"
 bot = telebot.TeleBot(BOT_TOKEN)
 server = Flask(__name__)
 
-# إعدادات التحميل
+# إعدادات مجلد التحميل
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# إعدادات ضغط الصوت (جودة منخفضة جداً)
+# إعدادات ضغط الصوت (جودة منخفضة جداً لتقليل الحجم ≤ 3MB)
 AUDIO_OPTS = {
     'format': 'bestaudio/best',
     'postprocessors': [{
@@ -26,11 +26,12 @@ AUDIO_OPTS = {
     'quiet': True,
 }
 
-# استقبال الرابط من المستخدم
+# رسالة البداية
 @bot.message_handler(commands=['start'])
 def start(msg):
     bot.reply_to(msg, "🎧 أرسل لي رابط فيديو من YouTube وسأحوله إلى صوت مضغوط جدًا (≤ 3 ميجا تقريبًا).")
 
+# استقبال روابط يوتيوب
 @bot.message_handler(func=lambda m: 'youtube.com' in m.text or 'youtu.be' in m.text)
 def handle_youtube(msg):
     url = msg.text.strip()
@@ -50,7 +51,7 @@ def handle_youtube(msg):
         else:
             bot.reply_to(msg, "❌ فشل العثور على الملف الصوتي.")
     except Exception as e:
-        bot.reply_to(msg, f"⚠️ حدث خطأ أثناء المعالجة: {e}")
+        bot.reply_to(msg, f"⚠️ حدث خطأ أثناء التحميل أو المعالجة:\n{e}")
 
 # إعداد Flask لـ Render
 @server.route("/" + BOT_TOKEN, methods=["POST"])
@@ -58,11 +59,12 @@ def getMessage():
     bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
     return "OK", 200
 
-@server.route("/")
-def webhook():
+@server.route("/", methods=["GET"])
+def set_webhook():
     bot.remove_webhook()
-    bot.set_webhook(url="https://juzif_bot.onrender.com/" + BOT_TOKEN)
-    return "Webhook set", 200
+    bot.set_webhook(url="https://juzif-bot.onrender.com/" + BOT_TOKEN)
+    return "✅ Webhook has been set successfully!", 200
 
+# تشغيل السيرفر
 if __name__ == "__main__":
     server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
