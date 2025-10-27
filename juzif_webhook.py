@@ -1,68 +1,60 @@
-import os
 import telebot
-from flask import Flask, request
 import yt_dlp
+import os
+from flask import Flask, request
 
-# إعدادات البوت
+# 🔹 ضع هنا توكن البوت الحقيقي (استبدل النص أدناه بتوكنك)
 BOT_TOKEN = "6219694069:AAGQ6J0nDTW-9jO4VNp2mZo9paZvwQMlk5E"
-CHANNEL_ID = "-1003203955147"
-
 bot = telebot.TeleBot(BOT_TOKEN)
-server = Flask(__name__)
 
-# إعدادات التحميل
-DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+# 🔹 رابط تطبيقك في Render
+WEBHOOK_URL = f"https://juzif-bot.onrender.com/{BOT_TOKEN}"
 
-# إعدادات ضغط الصوت (جودة منخفضة جداً)
-AUDIO_OPTS = {
-    'format': 'bestaudio/best',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '16',  # جودة منخفضة جدًا
-    }],
-    'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
-    'quiet': True,
-}
+app = Flask(__name__)
 
-# استقبال الرابط من المستخدم
-@bot.message_handler(commands=['start'])
-def start(msg):
-    bot.reply_to(msg, "🎧 أرسل لي رابط فيديو من YouTube وسأحوله إلى صوت مضغوط جدًا (≤ 3 ميجا تقريبًا).")
+# ✅ اضبط Webhook عند بدء التشغيل
+@app.before_first_request
+def set_webhook():
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    print(f"✅ Webhook set to {WEBHOOK_URL}")
 
-@bot.message_handler(func=lambda m: 'youtube.com' in m.text or 'youtu.be' in m.text)
-def handle_youtube(msg):
-    url = msg.text.strip()
-    bot.reply_to(msg, "⏳ جارِ تحميل الصوت وضغطه، انتظر قليلاً...")
-
-    try:
-        with yt_dlp.YoutubeDL(AUDIO_OPTS) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            audio_path = os.path.splitext(filename)[0] + ".mp3"
-
-        if os.path.exists(audio_path):
-            with open(audio_path, "rb") as f:
-                bot.send_audio(CHANNEL_ID, f, caption=f"🎶 {info.get('title', 'Audio')}")
-            os.remove(audio_path)
-            bot.reply_to(msg, "✅ تم نشر الصوت في القناة بنجاح.")
-        else:
-            bot.reply_to(msg, "❌ فشل العثور على الملف الصوتي.")
-    except Exception as e:
-        bot.reply_to(msg, f"⚠️ حدث خطأ أثناء المعالجة: {e}")
-
-# إعداد Flask لـ Render
-@server.route("/" + BOT_TOKEN, methods=["POST"])
-def getMessage():
-    bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
+@app.route(f"/{BOT_TOKEN}", methods=['POST'])
+def webhook():
+    update = request.stream.read().decode("utf-8")
+    bot.process_new_updates([telebot.types.Update.de_json(update)])
     return "OK", 200
 
-@server.route("/")
-def webhook():
-    bot.remove_webhook()
-    bot.set_webhook(url="https://اسم-التطبيق.onrender.com/" + BOT_TOKEN)
-    return "Webhook set", 200
+# 🎧 عند إرسال رابط يوتيوب
+@bot.message_handler(func=lambda msg: msg.text and "youtube.com" in msg.text or "youtu.be" in msg.text)
+def handle_youtube_link(message):
+    url = message.text.strip()
+    bot.reply_to(message, "⏳ جاري التحميل بجودة منخفضة جدًا...")
+    try:
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": "audio.%(ext)s",
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "m4a",
+                "preferredquality": "16",  # جودة منخفضة جدًا
+            }],
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            title = info.get("title", "بدون عنوان")
+            file = "audio.m4a"
+
+        with open(file, "rb") as audio:
+            bot.send_audio(message.chat.id, audio, caption=f"🎵 {title}")
+
+        os.remove(file)
+    except Exception as e:
+        bot.reply_to(message, f"❌ حدث خطأ أثناء التحميل: {e}")
+
+@app.route("/", methods=["GET"])
+def home():
+    return "🤖 juzif-bot is running!", 200
 
 if __name__ == "__main__":
-    server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=10000)
