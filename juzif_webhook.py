@@ -4,8 +4,8 @@ from flask import Flask, request
 import yt_dlp
 
 # ---------------- إعدادات البوت ----------------
-BOT_TOKEN = "6219694069:AAGQ6J0nDTW-9jO4VNp2mZo9paZvwQMlk5E"  # ضع توكن بوتك هنا
-CHANNEL_ID = "-1003203955147"  # ضع معرف القناة هنا
+BOT_TOKEN = "6219694069:AAGQ6J0nDTW-9jO4VNp2mZo9paZvwQMlk5E"  # ضع توكن بوتك
+CHANNEL_ID = "-1003203955147"  # ضع معرف القناة
 
 bot = telebot.TeleBot(BOT_TOKEN)
 server = Flask(__name__)
@@ -16,21 +16,25 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 # ---------------- إعدادات ضغط الصوت ----------------
 AUDIO_OPTS = {
-    'format': 'bestaudio[abr<=16]',  # أقل جودة لجعل الملف صغير جدًا
+    'format': 'bestaudio/best',
     'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
     'quiet': True,
     'no_warnings': True,
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'mp3',
-        'preferredquality': '16',  # 16 kbps تقريبًا
+        'preferredquality': '16',  # 16 kbps لتقليل الحجم جداً
     }],
+    # استخدام 16kHz لتحويل الصوت وتقليل الحجم
+    'postprocessor_args': [
+        '-ar', '16000'  # sample rate
+    ]
 }
 
 # ---------------- أوامر البوت ----------------
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "🎧 أرسل رابط YouTube (≤5 دقائق) وسأحوّله إلى صوت مضغوط جدًا لنشره في القناة.")
+    bot.reply_to(msg, "🎧 أرسل رابط YouTube (≤5 دقائق) وسأحوّله إلى صوت مضغوط جدًا ≤ 2 ميغا.")
 
 @bot.message_handler(func=lambda m: 'youtube.com' in m.text or 'youtu.be' in m.text)
 def handle_youtube(msg):
@@ -44,6 +48,11 @@ def handle_youtube(msg):
             audio_path = os.path.splitext(filename)[0] + ".mp3"
 
         if os.path.exists(audio_path):
+            # التحقق من حجم الملف
+            size_mb = os.path.getsize(audio_path) / (1024*1024)
+            if size_mb > 2:
+                bot.reply_to(msg, f"⚠️ تم تحميل الصوت، لكنه أكبر من 2 ميغا ({size_mb:.2f} MB). قد لا يعمل في بعض القنوات.")
+            
             with open(audio_path, "rb") as f:
                 bot.send_audio(CHANNEL_ID, f, caption=f"🎶 {info.get('title', 'Audio')}")
             os.remove(audio_path)
@@ -62,7 +71,7 @@ def getMessage():
 @server.route("/")
 def webhook():
     bot.remove_webhook()
-    bot.set_webhook(url="https://juzif-bot.onrender.com/" + BOT_TOKEN)  # ضع رابط بوت Render هنا
+    bot.set_webhook(url="https://juzif-bot.onrender.com/" + BOT_TOKEN)
     return "Webhook set", 200
 
 # ---------------- تشغيل الخادم ----------------
