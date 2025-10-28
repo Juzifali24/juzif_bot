@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: juzif-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python juzif.py
+    plan: free
