@@ -1,71 +1,59 @@
 import os
-import requests
 import telebot
 from flask import Flask, request
+import yt_dlp
 
-BOT_TOKEN = "6219694069:AAGQ6J0nDTW-9jO4VNp2mZo9paZvwQMlk5E"
-CHANNEL_ID = "-1003203955147"
+# ---------------- إعدادات البوت ----------------
+BOT_TOKEN = "6219694069:AAGQ6J0nDTW-9jO4VNp2mZo9paZvwQMlk5E"  # ضع توكن بوتك هنا
+CHANNEL_ID = "-1003203955147"  # ضع معرف القناة هنا
 
 bot = telebot.TeleBot(BOT_TOKEN)
 server = Flask(__name__)
 
+# ---------------- مجلد التحميل ----------------
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# --------------------------
-# دالة لتحويل رابط يوتيوب إلى mp3 مضغوط
-# --------------------------
-def download_youtube_audio(url):
-    try:
-        # واجهة بديلة لتحويل الفيديو إلى mp3
-        api_url = "https://api.snaptik.app/api/ytmp3"
-        params = {"url": url}
-        r = requests.get(api_url, params=params, timeout=60)
-        r.raise_for_status()
-        data = r.json()
+# ---------------- إعدادات ضغط الصوت ----------------
+AUDIO_OPTS = {
+    'format': 'bestaudio[abr<=16]',  # أقل جودة لجعل الملف صغير جدًا
+    'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
+    'quiet': True,
+    'no_warnings': True,
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '16',  # 16 kbps تقريبًا
+    }],
+}
 
-        if data.get("success") and data.get("audio_url"):
-            audio_response = requests.get(data["audio_url"], timeout=60)
-            title = data.get("title", "audio")
-            safe_title = "".join([c if c.isalnum() else "_" for c in title])
-            path = os.path.join(DOWNLOAD_DIR, f"{safe_title}.mp3")
-            with open(path, "wb") as f:
-                f.write(audio_response.content)
-            return path, title
-        else:
-            return None, None
-    except Exception as e:
-        print("⚠️ خطأ أثناء التحويل:", e)
-        return None, None
-
-# --------------------------
-# استقبال الرسائل
-# --------------------------
+# ---------------- أوامر البوت ----------------
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "🎧 أرسل رابط فيديو YouTube وسأرسله كصوت مضغوط جدًا ≤3 ميجا إلى القناة.")
+    bot.reply_to(msg, "🎧 أرسل رابط YouTube (≤5 دقائق) وسأحوّله إلى صوت مضغوط جدًا لنشره في القناة.")
 
 @bot.message_handler(func=lambda m: 'youtube.com' in m.text or 'youtu.be' in m.text)
 def handle_youtube(msg):
     url = msg.text.strip()
-    bot.reply_to(msg, "⏳ جارِ تحميل الصوت وضغطه، انتظر قليلاً...")
+    bot.reply_to(msg, "⏳ جارٍ تحميل الصوت وضغطه، انتظر قليلاً...")
 
-    path, title = download_youtube_audio(url)
-    if path and os.path.exists(path):
-        try:
-            with open(path, "rb") as f:
-                bot.send_audio(CHANNEL_ID, f, caption=f"🎶 {title} | © قناتي 🌙")
+    try:
+        with yt_dlp.YoutubeDL(AUDIO_OPTS) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            audio_path = os.path.splitext(filename)[0] + ".mp3"
+
+        if os.path.exists(audio_path):
+            with open(audio_path, "rb") as f:
+                bot.send_audio(CHANNEL_ID, f, caption=f"🎶 {info.get('title', 'Audio')}")
+            os.remove(audio_path)
             bot.reply_to(msg, "✅ تم نشر الصوت في القناة بنجاح.")
-        except Exception as e:
-            bot.reply_to(msg, f"❌ خطأ أثناء الإرسال: {e}")
-        finally:
-            os.remove(path)
-    else:
-        bot.reply_to(msg, "⚠️ فشل التحميل أو التحويل.")
+        else:
+            bot.reply_to(msg, "❌ فشل العثور على الملف الصوتي.")
+    except Exception as e:
+        bot.reply_to(msg, f"⚠️ حدث خطأ أثناء المعالجة: {e}")
 
-# --------------------------
-# إعداد Flask لـ Render
-# --------------------------
+# ---------------- إعداد Flask للـ Render ----------------
 @server.route("/" + BOT_TOKEN, methods=["POST"])
 def getMessage():
     bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
@@ -74,8 +62,9 @@ def getMessage():
 @server.route("/")
 def webhook():
     bot.remove_webhook()
-    bot.set_webhook(url="https://juzif-bot.onrender.com/" + BOT_TOKEN)
+    bot.set_webhook(url="https://juzif-bot.onrender.com/" + BOT_TOKEN)  # ضع رابط بوت Render هنا
     return "Webhook set", 200
 
+# ---------------- تشغيل الخادم ----------------
 if __name__ == "__main__":
     server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
